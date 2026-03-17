@@ -46,7 +46,10 @@ export function saveState(statePath: string, state: SyncState): void {
 
 export function fileHash(filePath: string): string {
   const hash = crypto.createHash("sha256");
-  const stream = fs.readFileSync(filePath);
-  hash.update(stream);
+  const fd = fs.openSync(filePath, "r");
+  const buf = Buffer.alloc(8192);
+  const bytesRead = fs.readSync(fd, buf, 0, 8192, 0);
+  fs.closeSync(fd);
+  hash.update(buf.subarray(0, bytesRead));
   return hash.digest("hex").slice(0, 16);
 }

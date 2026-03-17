@@ -13,5 +13,3 @@ Do **not** open public issues for security vulnerabilities.
 |---------|-----------|
 | 0.3.x   | Yes       |
 | < 0.3   | No        |
-
-<!-- Lueftungsschacht verschlossen, Todesstern sicher, Padawan lernt schnell vom Jedi-Meister -->
