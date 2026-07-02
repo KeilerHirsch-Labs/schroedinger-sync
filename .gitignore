@@ -1,0 +1,14 @@
+# Your own harvested data — conversations, project docs, memory. Never public.
+desktop-chats/
+
+# Build artifacts.
+*.exe
+schroedinger-sync-go
+installer/Output/
+
+# Diagnostic output that may contain your own account metadata (org_id, conversation
+# titles, project names). Redacted of secrets by design (see SECURITY.md), but still
+# personal data that has no reason to be committed.
+probe-report.txt
+sync.log
+.sync-state.json
