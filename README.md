@@ -123,5 +123,18 @@ Claude/Anthropic only, for now. See SECURITY.md "Scope" section.
 
 ## License
 
-AGPLv3 — free and open forever, no paid tier. Strong copyleft: any derivative must stay open-source under the same license. See [LICENSE](LICENSE) and SECURITY.md's
-"Business model" section for why.
+**Dual-licensed.**
+
+- **Open source — [GNU AGPLv3](LICENSE):** free forever for individuals and for any
+  use that honours the AGPL's copyleft (including its network/SaaS clause). Run it,
+  read it, modify it, self-host it at no cost. The individual tool will always have a
+  free, open edition.
+- **Commercial — [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md):** organisations that
+  want to embed or redistribute Schroedinger Sync inside a **closed-source or SaaS
+  product** — without taking on the AGPL's obligation to release their own source —
+  can obtain a separate commercial licence.
+
+Copyright © 2026 KeilerHirsch. All external contributions are governed by the
+[Contributor License Agreement](CLA.md), which keeps the relicensing right
+consolidated so the dual-licence can exist. See [CONTRIBUTING.md](CONTRIBUTING.md)
+and SECURITY.md's "Business model" section for the reasoning.

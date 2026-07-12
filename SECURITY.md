@@ -101,23 +101,32 @@ above: architectural constraints, enforced by tests, that make this tool a poor 
 for anything other than exporting your own data from your own account on your own
 machine.
 
-## Business model: free, forever
+## Business model: free for you, commercial licence for closed-source embedding
 
 This project's original 2026-03 plan was a freemium SaaS (free tier, paid Pro/Team
-tiers). That plan is retired. Schroedinger Sync v2 is AGPLv3-licensed and free — no paid
-tier, no telemetry, no upsell — permanently. Reasons, briefly:
+tiers aimed at individuals). That plan is retired. The individual tool is, and will
+remain, **free and open under the AGPLv3** — no paid tier for the person running it
+against their own account, no telemetry, no upsell.
+
+What is *not* free is one specific thing: the right to take this code and ship it
+**inside a closed-source or SaaS product without honouring the AGPLv3**. That is a
+separate **commercial licence** (see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)),
+aimed at organisations, not at the individual end user. The reasoning:
 
 - **The real addressable audience is a technical niche** (people running Claude Desktop
-  + VS Code Claude Code + a local memory system like MemPalace), not a mass market.
-  A paid tier only makes sense at a scale this project doesn't have and isn't chasing.
-- **A tool that decrypts your own credentials should not also be asking you to pay
-  a stranger for the privilege.** Free + open source lets anyone read exactly what it
-  does before trusting it with DPAPI access — that's the actual value exchange here,
-  not a price tag.
-- **Charging money changes the liability picture.** Free software under the AGPLv3 ships
-  "AS IS, WITHOUT WARRANTY" (see LICENSE) — a reasonable basis for a solo-maintained
-  security-adjacent tool. A paid product would carry consumer-rights and warranty
-  obligations disproportionate to what a hobby project can responsibly support.
+  + VS Code Claude Code + a local memory system like MemPalace), not a mass consumer
+  market. There is no mass-market paid tier to chase — and none is chased.
+- **A tool that decrypts your own credentials should never ask *you* to pay a stranger
+  for the privilege.** For the individual, free + open source is the whole value
+  exchange: read exactly what it does before trusting it with DPAPI access. The
+  commercial licence is not charged to that person — it is charged to a company that
+  wants to build a *closed* product on top and escape the copyleft.
+- **The AGPLv3 is the mechanism, not an afterthought.** Its network-copyleft is what
+  makes the free edition genuinely free (any hosted derivative must also open its
+  source) *and* what makes a commercial licence meaningful (a company that won't open
+  its source buys the exception instead). Free software ships "AS IS, WITHOUT WARRANTY"
+  (see LICENSE); any warranty or support obligations would be negotiated separately in
+  a commercial licence, not carried by the free edition.
 
 ## Scope: Claude/Anthropic only (for now)
 
