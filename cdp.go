@@ -103,7 +103,12 @@ func openClaudeSession() (get func(string) (string, error), rawGet func(string) 
 	if e != nil || sessionKey == "" {
 		return nil, nil, nil, fmt.Errorf("sessionKey via DPAPI failed (close Claude Desktop first): %v", e)
 	}
-	fmt.Printf("[0] sessionKey via DPAPI: OK (len=%d)\n", len(sessionKey))
+	// logf (not fmt.Printf): openClaudeSession is reached both from the one-shot commands
+	// (main goroutine) AND from the tray daemon's refreshSurfaces on its background sync
+	// goroutine. Writing straight to the os.Stdout package variable would race with the
+	// tray "Beenden" handler's stopRedactor() reassigning os.Stdout on another goroutine;
+	// logf writes to logSink, which is published once before any goroutine starts.
+	logf("sessionKey via DPAPI: OK (len=%d)", len(sessionKey))
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", false), // Cloudflare blocks old headless
@@ -162,14 +167,28 @@ func openClaudeSession() (get func(string) (string, error), rawGet func(string) 
 // can never silently break that fallback again.
 var errRateLimited = errors.New("rate-limited")
 
+// isRateLimited reports whether a claude.ai response body is a soft rate-limit /
+// transient-unavailability payload — these come back with HTTP 200, so only the body
+// content reveals them.
+func isRateLimited(body string) bool {
+	return strings.Contains(body, "rate_limit_error") || strings.Contains(body, "Temporarily unavailable")
+}
+
 func getWithRetry(get func(string) (string, error), path string, maxRetry int) (string, error) {
-	delay := 2 * time.Second
+	return getWithRetryDelay(get, path, maxRetry, 2*time.Second)
+}
+
+// getWithRetryDelay is getWithRetry with an injectable initial backoff. Production uses 2s
+// (doubling); tests pass a millisecond so the retry/backoff/exhaustion logic can be exercised
+// without real multi-second sleeps.
+func getWithRetryDelay(get func(string) (string, error), path string, maxRetry int, baseDelay time.Duration) (string, error) {
+	delay := baseDelay
 	for i := 0; ; i++ {
 		body, err := get(path)
 		if err != nil {
 			return "", err
 		}
-		if strings.Contains(body, "rate_limit_error") || strings.Contains(body, "Temporarily unavailable") {
+		if isRateLimited(body) {
 			if i >= maxRetry {
 				return "", fmt.Errorf("%w after %d retries", errRateLimited, maxRetry)
 			}
@@ -182,9 +201,17 @@ func getWithRetry(get func(string) (string, error), path string, maxRetry int) (
 }
 
 func fetchConvBody(get func(string) (string, error), org, uuid string) (string, error) {
-	// A few huge/tool-heavy conversations persistently rate-limit on the full-fat
-	// request even solo -> it's an expensive render, not frequency. Fall back to
-	// progressively lighter query params so the big one still comes through.
+	return fetchConvBodyDelay(get, org, uuid, 2*time.Second, 3*time.Second)
+}
+
+// fetchConvBodyDelay is fetchConvBody with injectable delays (retry backoff + the gap
+// between query-param variants) so the fallback logic is unit-testable in milliseconds.
+//
+// A few huge/tool-heavy conversations persistently rate-limit on the full-fat request even
+// solo -> it's an expensive render, not frequency. Fall back to progressively lighter query
+// params so the big one still comes through. Only a rate-limit error triggers the fallback;
+// any other error returns immediately (lighter params won't fix it).
+func fetchConvBodyDelay(get func(string) (string, error), org, uuid string, retryBase, variantGap time.Duration) (string, error) {
 	base := "/api/organizations/" + org + "/chat_conversations/" + uuid
 	variants := []string{
 		"?tree=True&rendering_mode=messages&render_all_tools=true&consistency=strong",
@@ -193,7 +220,7 @@ func fetchConvBody(get func(string) (string, error), org, uuid string) (string, 
 	}
 	var lastErr error
 	for _, q := range variants {
-		body, err := getWithRetry(get, base+q, 4)
+		body, err := getWithRetryDelay(get, base+q, 4, retryBase)
 		if err == nil {
 			return body, nil
 		}
@@ -201,7 +228,7 @@ func fetchConvBody(get func(string) (string, error), org, uuid string) (string, 
 		if !errors.Is(err, errRateLimited) {
 			return "", err // a non-rate-limit error won't be fixed by lighter params
 		}
-		time.Sleep(3 * time.Second)
+		time.Sleep(variantGap)
 	}
 	return "", lastErr
 }
@@ -273,6 +300,44 @@ func cdpSmoke() {
 	fmt.Println("\nSMOKE TEST (CDP): GREEN")
 }
 
+// --- shared harvest primitives (one source of truth for both cdpHarvest and harvestOnce) ---
+
+// listAllConversations paginates the full conversation list. It returns a HARD error on any
+// page failure, so a caller can never mistake a truncated list for a complete one. This is
+// the fix for a real bug: the one-shot harvest used to `break` out of its pagination loop on
+// a mid-list error and then report the partial list as a successful, complete run. Sharing
+// this with harvestOnce also stops the one-shot and daemon paths from drifting apart in how
+// they treat a listing failure.
+func listAllConversations(get func(string) (string, error), org string) ([]convSummary, error) {
+	var all []convSummary
+	const limit = 100
+	for offset := 0; ; offset += limit {
+		body, err := getWithRetry(get,
+			fmt.Sprintf("/api/organizations/%s/chat_conversations?limit=%d&offset=%d", org, limit, offset), 6)
+		if err != nil {
+			return nil, fmt.Errorf("list at offset %d: %w", offset, err)
+		}
+		var page []convSummary
+		if json.Unmarshal([]byte(body), &page) != nil {
+			return nil, fmt.Errorf("list parse at offset %d: %s", offset, trunc(body, 160))
+		}
+		all = append(all, page...)
+		if len(page) < limit {
+			break
+		}
+		time.Sleep(800 * time.Millisecond)
+	}
+	return all, nil
+}
+
+// convFilename is the single source of truth for a conversation's on-disk path, shared by the
+// one-shot harvest and the daemon so the two can never disagree on where a file lives (they
+// previously hand-built the same fmt.Sprintf in two places).
+func convFilename(outDir string, c convSummary) string {
+	return filepath.Join(outDir, fmt.Sprintf("%s_%s_%s.md",
+		pathSafe(trunc(c.CreatedAt, 10)), pathSafe(trunc(c.UUID, 8)), sanitize(c.Name)))
+}
+
 // --- harvest (M2) ---
 
 func cdpHarvest() {
@@ -292,26 +357,12 @@ func cdpHarvest() {
 	}
 	fmt.Println("[2] org_id:", org)
 
-	// 1) paginate the full conversation list (no count_all — it rate-limits)
-	var all []convSummary
-	const limit = 100
-	for offset := 0; ; offset += limit {
-		body, err := getWithRetry(get,
-			fmt.Sprintf("/api/organizations/%s/chat_conversations?limit=%d&offset=%d", org, limit, offset), 6)
-		if err != nil {
-			fmt.Println("FAIL @list:", err)
-			break
-		}
-		var page []convSummary
-		if json.Unmarshal([]byte(body), &page) != nil {
-			fmt.Println("FAIL @list parse:", trunc(body, 200))
-			break
-		}
-		all = append(all, page...)
-		if len(page) < limit {
-			break
-		}
-		time.Sleep(800 * time.Millisecond)
+	// 1) paginate the full conversation list (no count_all — it rate-limits). A listing
+	// failure is fatal: harvesting a partial list and reporting "DONE" would silently
+	// under-export, so we stop with a clear INCOMPLETE message instead of pressing on.
+	all, listErr := listAllConversations(get, org)
+	if listErr != nil {
+		fatal("FAIL @list (harvest INCOMPLETE — not all conversations were listed):", listErr)
 	}
 	fmt.Printf("found %d conversations -> %s\n", len(all), outDir)
 	// 0o750/0o600: this directory holds the user's own exported private conversations —
@@ -328,7 +379,7 @@ func cdpHarvest() {
 	// 2) fetch each full conversation -> Markdown (incremental, rate-limit-friendly)
 	newN, skip, errN := 0, 0, 0
 	for i, c := range all {
-		fname := filepath.Join(outDir, fmt.Sprintf("%s_%s_%s.md", pathSafe(trunc(c.CreatedAt, 10)), pathSafe(trunc(c.UUID, 8)), sanitize(c.Name)))
+		fname := convFilename(outDir, c)
 		if fi, e := os.Stat(fname); e == nil && fi.Size() > 100 { // #nosec G703 -- see above
 			skip++
 			continue

@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.1.1 — sync-engine correctness hardening
+
+A focused correctness pass on the live-sync engine after a full multi-agent ECC review (Go
+review + security review; gosec, staticcheck, and govulncheck all clean). The security surface
+came through clean — every fix here is in the sync/robustness path.
+
+**Fixed:**
+- **Silent data loss on the first daemon cycle.** The daemon seeded its sync state from any
+  existing on-disk file without checking that the file actually reflected the conversation's
+  current server version. A conversation edited between the one-shot `harvest` and the first
+  daemon cycle was recorded as up to date while the file still held the old content, and the
+  change was never re-fetched. The daemon now compares the file's own recorded `updated_at`
+  against the server's and re-fetches on any mismatch.
+- **One-shot `harvest` no longer reports success on a partial export.** A mid-pagination
+  listing failure used to break the loop and then report "DONE … 0 errors" over an incomplete
+  conversation list. Listing failures are now fatal with a clear INCOMPLETE message, matching
+  how the daemon already treated them.
+- **Data race on `os.Stdout` in the tray daemon.** Project-doc and memory harvest diagnostics
+  wrote straight to the `os.Stdout` package variable from the background sync goroutine while
+  the tray "Beenden" handler reassigned it on another goroutine. They now route through the
+  same `logf` sink as the rest of the daemon.
+
+**Internal:**
+- Extracted conversation-listing and filename construction into shared functions used by both
+  the one-shot and daemon paths, so the two can no longer drift apart (the root cause of the
+  partial-export bug).
+- Made the retry/backoff and query-param fallback delays injectable so that logic is
+  unit-testable in milliseconds. Test coverage 20.9% → 27.2%, with the previously-untested
+  sync state machine now locked by regression tests.
+
 ## v2.1.0 — AGPLv3 relicense + gold-standard hardening
 
 Relicensed from MIT to **AGPLv3** (still free and open, permanently) so any derivative —

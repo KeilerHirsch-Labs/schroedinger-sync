@@ -35,6 +35,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -130,6 +131,63 @@ func isDesktopRunning() bool {
 	return strings.Contains(strings.ToLower(string(out)), "claude.exe")
 }
 
+// --- sync-state decision (pure, unit-tested) ---
+
+// reUpdatedHeader matches the "- Updated: <ts>" line convToMarkdown writes into every
+// exported conversation file.
+var reUpdatedHeader = regexp.MustCompile(`(?m)^- Updated: (.+)$`)
+
+// fileConvUpdatedAt returns the server updated_at recorded in an already-exported file's
+// header (the value convToMarkdown wrote, truncated to 19 chars), or "" if the file is
+// unreadable or has no such header. Lets the daemon tell a genuinely-current M2 file from
+// one that went stale before the daemon first ran. Reads only a bounded prefix — the header
+// is always in the first few lines, so there's no need to load a multi-MB transcript.
+func fileConvUpdatedAt(path string) string {
+	f, err := os.Open(path) // #nosec G304 -- path is outDir + sanitised filename, see cdp.go
+	if err != nil {
+		return ""
+	}
+	// Close error on a read-only file we're done with carries nothing actionable.
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, 512)
+	n, _ := f.Read(buf) // a short read still contains the header (it's ~line 4)
+	m := reUpdatedHeader.FindSubmatch(buf[:n])
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(string(m[1]))
+}
+
+type convActionKind int
+
+const (
+	actionFetch convActionKind = iota // (re)download the conversation
+	actionSkip                        // already current in state + on disk
+	actionSeed                        // trust an existing M2 file, record state without downloading
+)
+
+// convAction is the daemon's per-conversation decision, pulled out as a pure function so the
+// sync state machine — the tool's most important logic — is unit-tested without a live
+// browser. `fileUpdated` is fileConvUpdatedAt's result for the on-disk file (only meaningful
+// when fileOK).
+//
+// The actionSeed guard fixes a real data-loss bug: the old code seeded state from ANY
+// existing file on the first daemon cycle, recording the CURRENT server updated_at even when
+// the on-disk file was older. If a conversation changed between the one-shot M2 harvest and
+// the first daemon cycle, that delta was then never re-fetched (state and server agreed on
+// the new timestamp, but the file still held the old content). Seeding now requires the file
+// to actually match the server version; otherwise we fetch.
+func convAction(c convSummary, known string, seen, fileOK bool, fileUpdated string) convActionKind {
+	switch {
+	case seen && known == c.UpdatedAt && fileOK:
+		return actionSkip
+	case !seen && fileOK && fileUpdated == trunc(c.UpdatedAt, 19):
+		return actionSeed
+	default:
+		return actionFetch
+	}
+}
+
 // harvestOnce opens a Cloudflare-cleared session, lists all conversations, and
 // fetches only the ones that are new or whose updated_at changed since last time.
 // On first run (no state) it SEEDS state from conversations that already have a
@@ -149,47 +207,37 @@ func harvestOnce(outDir string, s *syncState) (newN, changedN, seedN, errN int, 
 		return 0, 0, 0, 0, e
 	}
 
-	var all []convSummary
-	const limit = 100
-	for offset := 0; ; offset += limit {
-		body, lerr := getWithRetry(get,
-			fmt.Sprintf("/api/organizations/%s/chat_conversations?limit=%d&offset=%d", org, limit, offset), 6)
-		if lerr != nil {
-			return newN, changedN, seedN, errN, fmt.Errorf("list: %w", lerr)
-		}
-		var page []convSummary
-		if json.Unmarshal([]byte(body), &page) != nil {
-			return newN, changedN, seedN, errN, fmt.Errorf("list parse: %s", trunc(body, 160))
-		}
-		all = append(all, page...)
-		if len(page) < limit {
-			break
-		}
-		time.Sleep(800 * time.Millisecond)
+	all, lerr := listAllConversations(get, org)
+	if lerr != nil {
+		return newN, changedN, seedN, errN, lerr
 	}
 	logf("listed %d conversations", len(all))
 
 	for _, c := range all {
-		fname := filepath.Join(outDir, fmt.Sprintf("%s_%s_%s.md",
-			pathSafe(trunc(c.CreatedAt, 10)), pathSafe(trunc(c.UUID, 8)), sanitize(c.Name)))
+		fname := convFilename(outDir, c)
 		fileOK := false
 		if fi, e := os.Stat(fname); e == nil && fi.Size() > minFileSizeBytes { // #nosec G703 -- see cdp.go
 			fileOK = true
 		}
 		known, seen := s.Conversations[c.UUID]
+		fileUpdated := ""
+		if fileOK {
+			fileUpdated = fileConvUpdatedAt(fname)
+		}
 
-		switch {
-		case seen && known == c.UpdatedAt && fileOK:
-			// up to date — nothing to do
+		switch convAction(c, known, seen, fileOK, fileUpdated) {
+		case actionSkip:
 			continue
-		case !seen && fileOK:
-			// already harvested by M2; trust it, seed state so we don't re-download
+		case actionSeed:
+			// M2 already harvested this AND the on-disk file reflects the current server
+			// version — trust it, seed state so we don't re-download.
 			s.Conversations[c.UUID] = c.UpdatedAt
 			seedN++
 			continue
 		}
 
-		// new, changed, or missing-file -> (re)fetch
+		// actionFetch: new, changed, missing-file, OR an M2 file that went stale before this
+		// first daemon cycle -> (re)fetch.
 		body, ferr := fetchConvBody(get, org, c.UUID)
 		if ferr != nil {
 			errN++

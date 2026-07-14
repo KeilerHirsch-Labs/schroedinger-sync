@@ -65,7 +65,9 @@ func readSharedFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	f := os.NewFile(uintptr(h), path)
-	defer f.Close()
+	// Close error on a shared read-only handle we've finished reading carries nothing
+	// actionable — best-effort teardown, same as the other cookie-DB read paths below.
+	defer func() { _ = f.Close() }()
 	return io.ReadAll(f)
 }
 

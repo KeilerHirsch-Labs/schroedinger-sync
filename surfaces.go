@@ -53,29 +53,29 @@ type projectDoc struct {
 func harvestProjects(get func(string) (string, error), org, outDir string) (docN, errN int) {
 	body, err := getWithRetry(get, "/api/organizations/"+org+"/projects", 5)
 	if err != nil {
-		fmt.Println("  projects list ERR:", err)
+		logf("  projects list ERR: %v", err)
 		return 0, 1
 	}
 	var projs []projectSummary
 	if json.Unmarshal([]byte(body), &projs) != nil {
-		fmt.Println("  projects parse ERR:", trunc(body, 200))
+		logf("  projects parse ERR: %s", trunc(body, 200))
 		return 0, 1
 	}
-	fmt.Printf("  %d project(s)\n", len(projs))
+	logf("  %d project(s)", len(projs))
 	for _, p := range projs {
 		docsBody, e := getWithRetry(get, "/api/organizations/"+org+"/projects/"+p.UUID+"/docs", 5)
 		if e != nil {
-			fmt.Printf("    [%s] docs ERR: %v\n", trunc(p.Name, 30), e)
+			logf("    [%s] docs ERR: %v", trunc(p.Name, 30), e)
 			errN++
 			continue
 		}
 		var docs []projectDoc
 		if json.Unmarshal([]byte(docsBody), &docs) != nil {
-			fmt.Printf("    [%s] docs parse ERR: %s\n", trunc(p.Name, 30), trunc(docsBody, 160))
+			logf("    [%s] docs parse ERR: %s", trunc(p.Name, 30), trunc(docsBody, 160))
 			errN++
 			continue
 		}
-		fmt.Printf("    [%s] %d doc(s)\n", trunc(p.Name, 40), len(docs))
+		logf("    [%s] %d doc(s)", trunc(p.Name, 40), len(docs))
 		for _, d := range docs {
 			fname := filepath.Join(outDir, fmt.Sprintf("project_%s_%s_%s",
 				pathSafe(trunc(p.UUID, 8)), pathSafe(trunc(d.UUID, 8)), sanitize(strings.TrimSuffix(d.FileName, ".md"))))
@@ -88,7 +88,7 @@ func harvestProjects(get func(string) (string, error), org, outDir string) (docN
 				docN++
 			} else {
 				errN++
-				fmt.Printf("    [%s] write ERR %.30s: %v\n", trunc(p.Name, 30), d.FileName, werr)
+				logf("    [%s] write ERR %.30s: %v", trunc(p.Name, 30), d.FileName, werr)
 			}
 			time.Sleep(150 * time.Millisecond)
 		}
