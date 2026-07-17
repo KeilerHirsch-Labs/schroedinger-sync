@@ -21,6 +21,12 @@ Exports your own claude.ai conversations, project knowledge docs, and memory to 
 Markdown — for feeding into your own local AI memory system (e.g.
 [MemPalace](https://github.com/MemPalace/mempalace)). Windows-only, single Go binary.
 
+> [!NOTE]
+> **Early Access.** The harvest/export core is stable and covered by tests, but the
+> project is still actively evolving — expect breaking changes between minor versions
+> until v3. Roadmap: a native ingest handshake so exports feed straight into
+> [MemPalace](https://github.com/MemPalace/mempalace) without a format detour.
+
 See [CHANGELOG.md](CHANGELOG.md) for what's new in v2 versus the retired v1
 (VS Code extension + Python CLI).
 
