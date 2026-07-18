@@ -107,6 +107,22 @@ before it ever shipped. Statement coverage 27.8% → 35.0%.
   Object here) and is still using that directory under a different PID — closing that needs
   scanning running processes' command lines for a matching `--user-data-dir`, real design
   work, not folded into this round.
+- **Installer now sweeps previous-version residue *before* installing, not just on
+  uninstall.** `cleanup-temp` closed the gap for residue left behind between runs and on
+  uninstall, but `DefaultDirName`/`AppId` never change across versions, so a plain upgrade
+  silently reused `{app}` with no equivalent pre-install check — residue from the version
+  being replaced (stale autostart launcher, orphaned chrome-profile subdir) could sit next
+  to a fresh install indefinitely. A new `[Code]` `CurStepChanged(ssInstall)` handler now
+  asks whichever version is *currently* installed to run its own `uninstall-task` +
+  `cleanup-temp` before `[Files]` overwrites it — delegated to the old exe rather than
+  reimplemented in Pascal, so the PID-liveness/reparse-point/age-gating safety logic above
+  is reused, not duplicated. `ssInstall` is documented to fire "just before the actual
+  installation starts," i.e. strictly before the old exe is overwritten (verified against
+  the Inno Setup Pascal Scripting reference, not assumed). Known gap: upgrading *from* a
+  version older than this one no-ops the `cleanup-temp` half of the pre-install sweep (that
+  command didn't exist yet in the old exe) — harmless, since the new exe's own
+  `cleanup-temp` still runs automatically on its first `watch`/`supervise`/`tray` start
+  regardless; every upgrade from this version onward gets the full pre-install sweep.
 - README/roadmap sharpened against fresh research (2026-07-17/18): the target-audience
   paragraph now names the two sharpest buyer wedges specifically (law firms/§203 StGB,
   healthcare/§393 SGB V+BSI C5) instead of a general EU/regulated-industries gesture; the
