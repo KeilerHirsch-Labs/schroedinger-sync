@@ -174,7 +174,7 @@ live inside the same `chat_conversations` API, distinguished only by a `platform
 
 ## Installation
 
-**Recommended — installer:** grab `SchroedingerSyncSetup.exe` from the
+Grab `SchroedingerSyncSetup.exe` from the
 [latest release](https://github.com/KeilerHirsch-Labs/schroedinger-sync/releases/latest)
 and run it. Per-user, no admin rights needed. It installs to
 `%LOCALAPPDATA%\SchroedingerSync`, optionally adds a desktop icon, and
@@ -182,10 +182,10 @@ optionally registers itself to start in the tray on logon — all opt-in
 checkboxes in the wizard, nothing silent. Uninstalling never touches your
 already-harvested data.
 
-**Unsigned — SmartScreen will warn.** Neither `schroedinger-sync.exe` nor
-`SchroedingerSyncSetup.exe` is code-signed (no cert, no bought-and-forgotten EV
-"trust" — that stopped bypassing SmartScreen in 2024 anyway). Verify what you
-downloaded against `SHA256SUMS` in the same release before running it:
+**Unsigned — SmartScreen will warn.** `SchroedingerSyncSetup.exe` is not
+code-signed (no cert, no bought-and-forgotten EV "trust" — that stopped
+bypassing SmartScreen in 2024 anyway). Verify what you downloaded against
+`SHA256SUMS` in the same release before running it:
 `certutil -hashfile <file> SHA256` (Windows) and compare by eye.
 
 **From source — for anyone who wants to read the code before running it:**
