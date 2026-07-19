@@ -86,15 +86,15 @@ func saveManifest(outDir string, m contentManifest) error {
 	tmp := f.Name()
 	if _, werr := f.Write(b); werr != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
+		_ = os.Remove(tmp) // #nosec G304 G703 -- outDir is a local CLI arg, see cdp.go
 		return werr
 	}
 	if cerr := f.Close(); cerr != nil {
-		_ = os.Remove(tmp)
+		_ = os.Remove(tmp) // #nosec G304 G703 -- outDir is a local CLI arg, see cdp.go
 		return cerr
 	}
-	if err := os.Rename(tmp, manifestPath(outDir)); err != nil {
-		_ = os.Remove(tmp)
+	if err := os.Rename(tmp, manifestPath(outDir)); err != nil { // #nosec G304 G703 -- outDir is a local CLI arg, see cdp.go
+		_ = os.Remove(tmp) // #nosec G304 G703 -- outDir is a local CLI arg, see cdp.go
 		return err
 	}
 	return nil
